@@ -150,6 +150,33 @@ func (s Num) Encode(b *Bits, v Version) {
 	}
 }
 
+// Terminator is the encoding for data past the null terminator.
+type Terminator []byte
+
+func (s Terminator) String() string {
+	return fmt.Sprintf("Terminator(%#q)", string(s))
+}
+
+func (s Terminator) Check() error {
+	for _, c := range s {
+		if c < 0 || 1 < c {
+			return fmt.Errorf("non-binary data %#q", string(s))
+		}
+	}
+	return nil
+}
+
+func (s Terminator) Bits(v Version) int {
+	return 4 + len(s)
+}
+
+func (s Terminator) Encode(b *Bits, v Version) {
+	b.Write(0, 4)
+	for i := 0; i < len(s); i++ {
+		b.Write(uint(s[i]), 1)
+	}
+}
+
 // Alpha is the encoding for alphanumeric data.
 // The valid characters are 0-9A-Z$%*+-./: and space.
 type Alpha string

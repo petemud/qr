@@ -224,31 +224,27 @@ func (m *Image) Encode() ([]byte, error) {
 		}
 	}
 
-Again:
 	// Count fixed initial data bits, prepare template URL.
-	url := m.URL + "#"
+	url := m.URL
 	var b coding.Bits
 	coding.String(url).Encode(&b, p.Version)
-	coding.Num("").Encode(&b, p.Version)
+	coding.Terminator("").Encode(&b, p.Version)
 	bbit := b.Bits()
 	dbit := p.DataBytes*8 - bbit
 	if dbit < 0 {
 		return nil, fmt.Errorf("cannot encode URL into available bits")
 	}
-	num := make([]byte, dbit/10*3)
-	for i := range num {
-		num[i] = '0'
-	}
+	term := make([]byte, dbit)
 	b.Pad(dbit)
 	b.Reset()
 	coding.String(url).Encode(&b, p.Version)
-	coding.Num(num).Encode(&b, p.Version)
+	coding.Terminator(term).Encode(&b, p.Version)
 	b.AddCheckBytes(p.Version, p.Level)
 	data := b.Bytes()
 
 	doff := 0 // data offset
 	coff := 0 // checksum offset
-	mbit := bbit + dbit/10*10
+	mbit := bbit + dbit
 
 	// Choose pixels.
 	bitblocks := make([]*BitBlock, p.Blocks)
@@ -439,45 +435,22 @@ Again:
 		}
 	}
 
-	noops := 0
-	// Copy numbers back out.
-	for i := 0; i < dbit/10; i++ {
-		// Pull out 10 bits.
-		v := 0
-		for j := 0; j < 10; j++ {
-			bi := uint(bbit + 10*i + j)
-			v <<= 1
-			v |= int((data[bi/8] >> (7 - bi&7)) & 1)
-		}
-		// Turn into 3 digits.
-		if v >= 1000 {
-			// Oops - too many 1 bits.
-			// We know the 512, 256, 128, 64, 32 bits are all set.
-			// Pick one at random to clear.  This will break some
-			// checksum bits, but so be it.
-			pinfo := &pixByOff[bbit+10*i+3] // TODO random
-			pinfo.Contrast = 1e9 >> 8
-			pinfo.HardZero = true
-			noops++
-		}
-		num[i*3+0] = byte(v/100 + '0')
-		num[i*3+1] = byte(v/10%10 + '0')
-		num[i*3+2] = byte(v%10 + '0')
-	}
-	if noops > 0 {
-		goto Again
+	for i := 0; i < dbit; i++ {
+		bi := uint(bbit + i)
+		v := int((data[bi/8] >> (7 - bi&7)) & 1)
+		term[i] = byte(v)
 	}
 
 	var b1 coding.Bits
 	coding.String(url).Encode(&b1, p.Version)
-	coding.Num(num).Encode(&b1, p.Version)
+	coding.Terminator(term).Encode(&b1, p.Version)
 	b1.AddCheckBytes(p.Version, p.Level)
 	if !bytes.Equal(b.Bytes(), b1.Bytes()) {
 		fmt.Printf("mismatch\n%d %x\n%d %x\n", len(b.Bytes()), b.Bytes(), len(b1.Bytes()), b1.Bytes())
 		panic("byte mismatch")
 	}
 
-	cc, err := p.Encode(coding.String(url), coding.Num(num))
+	cc, err := p.Encode(coding.String(url), coding.Terminator(term))
 	if err != nil {
 		return nil, err
 	}
